@@ -9,14 +9,16 @@ import __future__
 import argparse
 import ast
 import random
-from pathlib import Path
 from types import SimpleNamespace
 
 import torch
 from torch import nn
 
 
-SOURCE = Path(__file__).with_name("upstream") / "action_routing"
+from wm_fuzzing.sources import UPSTREAM
+
+
+SOURCE = UPSTREAM / "action_routing"
 
 
 def load_nodes(path, scope, select):

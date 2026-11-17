@@ -8,7 +8,8 @@ from pathlib import Path
 
 import torch
 
-from fuzz_checks import assert_frame_order
+from wm_fuzzing.experiments.checks import assert_frame_order
+from wm_fuzzing.sources import UPSTREAM
 
 
 def load_decode_methods(source):
@@ -61,7 +62,7 @@ def check_overlap(source, recipe, seed, cases):
 
 
 def main():
-    snapshot = Path(__file__).resolve().parent / "upstream" / "hy_worldplay"
+    snapshot = UPSTREAM / "hy_worldplay"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=snapshot / "temporal_vae_common.py")
     parser.add_argument("--recipe", type=Path, default=snapshot / "fasthunyuan_t2v.json")

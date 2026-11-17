@@ -1,45 +1,14 @@
 """Fuzz OpenDWM's overlapping CTSD video windows with numbered CPU frames."""
 
 import argparse
-import ast
+import random
 from collections import Counter
 from pathlib import Path
-import random
-from types import SimpleNamespace
 
 import torch
 
-from fuzz_checks import assert_frame_order
-
-
-SNAPSHOT = Path(__file__).with_name("upstream") / "opendwm"
-
-
-def load_function(source, name, bindings):
-    tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
-    member = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == name)
-    scope = dict(bindings)
-    exec(compile(ast.Module(body=[member], type_ignores=[]), str(source), "exec"), scope)
-    return scope[name]
-
-
-def run_tagged_rollout(rollout, ids, chunk_size, overlap):
-    def generate(latent_shape, window, output_type, condition, reference_frame_count):
-        tags = window["pts"]
-        assert tags.shape == latent_shape
-        if condition is not None:
-            torch.testing.assert_close(condition, tags[:, :reference_frame_count])
-        # The real decoder returns its image batch flattened in sample/time/view order.
-        return {"latents": tags, "images": tags.flatten(0, 2)}
-
-    pipeline = SimpleNamespace(
-        common_config={},
-        inference_config={"sequence_length_per_iteration": chunk_size, "reference_frame_count": overlap},
-        inference_pipeline=generate,
-        get_latent_sequence_length=int,
-    )
-    shape = (ids.shape[0], chunk_size, *ids.shape[2:])
-    return rollout(pipeline, shape, {"pts": ids}, "pt")["images"]
+from wm_fuzzing.adapters.opendwm import load_rollout, run_tagged_rollout
+from wm_fuzzing.experiments.checks import assert_frame_order
 
 
 def run_case(rollout, chunk_size, chunks, overlap, batch_size, views=1):
@@ -62,15 +31,7 @@ def main():
     if args.cases < 1 or args.batch_size < 1:
         parser.error("cases and batch size must be positive")
 
-    if args.checkout:
-        clip_source = args.checkout / "src/dwm/functional.py"
-        rollout_source = args.checkout / "src/dwm/pipelines/ctsd.py"
-    else:
-        clip_source = SNAPSHOT / "take_sequence_clip.py"
-        rollout_source = SNAPSHOT / "ctsd_autoregressive.py"
-    clip = load_function(clip_source, "take_sequence_clip", {"torch": torch})
-    dwm = SimpleNamespace(functional=SimpleNamespace(take_sequence_clip=clip))
-    rollout = load_function(rollout_source, "autoregressive_inference_pipeline", {"torch": torch, "dwm": dwm})
+    rollout = load_rollout(args.checkout)
 
     rng = random.Random(args.seed)
     # Match DreamDojo's tested plan. Its action chunk size excludes the reference frame.

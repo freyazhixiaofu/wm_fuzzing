@@ -10,7 +10,8 @@ from typing import List, Optional
 
 import torch
 
-from fuzz_checks import assert_frame_order
+from wm_fuzzing.experiments.checks import assert_frame_order
+from wm_fuzzing.sources import UPSTREAM
 
 
 SCALE = 1024
@@ -82,7 +83,7 @@ def run_case(do_sample, model, frames, rounds, initial_frames):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("repo", nargs="?", type=Path, default=Path(__file__).parent / "upstream" / "Vista")
+    parser.add_argument("repo", nargs="?", type=Path, default=UPSTREAM / "Vista")
     parser.add_argument("--cases", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()

@@ -10,8 +10,8 @@ from functools import partial
 import torch
 from torch import nn
 
-from fuzz_action_routing import SOURCE, load_nodes, load_vjepa, make_vjepa
-from fuzz_checks import assert_batch_isolation
+from wm_fuzzing.experiments.action_routing import SOURCE, load_nodes, load_vjepa, make_vjepa
+from wm_fuzzing.properties import assert_batch_isolation
 
 
 def make_diamond_reward_model():

@@ -5,23 +5,19 @@ import ast
 import json
 import random
 import runpy
-from pathlib import Path
 from types import MethodType, SimpleNamespace
 from typing import List, Optional
 
 import torch
 from einops import rearrange
 
-from fuzz_checks import assert_batch_isolation
-from fuzz_hy_vae_overlap import load_decode_methods
-
-
-SOURCE = Path(__file__).with_name("upstream")
-
+from wm_fuzzing.experiments.hy_vae_overlap import load_decode_methods
+from wm_fuzzing.properties import assert_batch_isolation
+from wm_fuzzing.sources import UPSTREAM
 
 def hy_worldplay():
     # Tencent-Hunyuan/HY-WorldPlay, 1588e1336e842b03b0a7860c654ebd7c46bb065e.
-    source = SOURCE / "hy_worldplay"
+    source = UPSTREAM / "hy_worldplay"
     config = json.loads((source / "fasthunyuan_t2v.json").read_text(encoding="utf8"))["vae_config"]
     methods = load_decode_methods(source / "temporal_vae_common.py")
 
@@ -45,7 +41,7 @@ def hy_worldplay():
 def vista():
     # OpenDriveLab/Vista, cc9821b4253ca7987c32757613d2fc2448fa9f5d,
     # vwm/modules/diffusionmodules/loss.py.
-    path = SOURCE / "Vista" / "loss.py"
+    path = UPSTREAM / "Vista" / "loss.py"
     module = ast.parse(path.read_text(encoding="utf8"), filename=str(path))
     loss_class = next(node for node in module.body if getattr(node, "name", None) == "StandardDiffusionLoss")
     methods = [node for node in loss_class.body if getattr(node, "name", None) in {"_forward", "get_noised_input"}]
@@ -83,7 +79,7 @@ def vista():
 
 
 def abot_world():
-    source = SOURCE / "reset" / "abot"
+    source = UPSTREAM / "reset" / "abot"
     common = {"torch": torch, "Optional": Optional, "List": List, "print": lambda *args, **kwargs: None}
     cache = runpy.run_path(str(source / "stream.py"), init_globals=common)
     methods = runpy.run_path(

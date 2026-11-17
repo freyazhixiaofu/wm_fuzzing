@@ -9,7 +9,10 @@ from types import SimpleNamespace
 import torch
 
 
-SNAPSHOTS = Path(__file__).with_name("upstream") / "tdmpc2"
+from wm_fuzzing.sources import UPSTREAM
+
+
+SNAPSHOTS = UPSTREAM / "tdmpc2"
 
 
 class CpuBatch(dict):

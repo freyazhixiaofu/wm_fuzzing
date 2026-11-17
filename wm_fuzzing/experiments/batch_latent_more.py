@@ -12,17 +12,17 @@ Pinned upstream sources
 import argparse
 import random
 import runpy
-from pathlib import Path
 from types import MethodType, SimpleNamespace
 
 import numpy as np
 import torch
 
-from fuzz_checks import assert_batch_isolation
-from fuzz_tdmpc2 import CpuBatch, load_method
+from wm_fuzzing.experiments.tdmpc2 import CpuBatch, load_method
+from wm_fuzzing.properties import assert_batch_isolation
+from wm_fuzzing.sources import UPSTREAM
 
 
-SOURCE = Path(__file__).with_name("upstream") / "batch_latent_more"
+SOURCE = UPSTREAM / "batch_latent_more"
 
 
 def load_tdmpc2():

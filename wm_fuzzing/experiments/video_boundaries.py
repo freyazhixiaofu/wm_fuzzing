@@ -11,7 +11,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from fuzz_checks import assert_frame_order
+from wm_fuzzing.experiments.checks import assert_frame_order
+from wm_fuzzing.sources import UPSTREAM
 
 
 def parse(path):
@@ -137,9 +138,8 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     if not any((args.matrix_offline, args.hy_generate, args.hy_trajectory, args.hy_before, args.hy_before_trajectory)):
-        upstream = Path(__file__).resolve().parent / "upstream"
-        hy = upstream / "hy_worldplay"
-        args.matrix_offline = upstream / "matrix_game_4" / "offline.py"
+        hy = UPSTREAM / "hy_worldplay"
+        args.matrix_offline = UPSTREAM / "matrix_game_4" / "offline.py"
         args.hy_generate = hy / "generate.py"
         args.hy_trajectory = hy / "generate_custom_trajectory.py"
         args.hy_before = hy / "before_pr17" / "generate.py"

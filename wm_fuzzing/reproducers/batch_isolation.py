@@ -3,19 +3,21 @@
 import argparse
 import random
 import runpy
-from pathlib import Path
 from textwrap import dedent
 from types import SimpleNamespace
 
 import torch
 from einops import rearrange
 
-from fuzz_checks import assert_batch_isolation
-from fuzz_latent_alignment import run_dino_rollout, run_le_rollout
-from fuzz_opendwm_alignment import load_function, run_tagged_rollout
-
-
-UPSTREAM = Path(__file__).with_name("upstream")
+from wm_fuzzing.adapters.latent_rollouts import (
+    DINO_SOURCE,
+    LE_SOURCE,
+    run_dino_rollout,
+    run_le_rollout,
+)
+from wm_fuzzing.adapters.opendwm import load_rollout, run_tagged_rollout
+from wm_fuzzing.properties import assert_batch_isolation
+from wm_fuzzing.sources import UPSTREAM
 
 
 def load_dreamdojo():
@@ -43,10 +45,7 @@ def load_dreamdojo():
 
 
 def load_opendwm():
-    path = UPSTREAM / "opendwm"
-    clip = load_function(path / "take_sequence_clip.py", "take_sequence_clip", {"torch": torch})
-    dwm = SimpleNamespace(functional=SimpleNamespace(take_sequence_clip=clip))
-    rollout = load_function(path / "ctsd_autoregressive.py", "autoregressive_inference_pipeline", {"torch": torch, "dwm": dwm})
+    rollout = load_rollout()
 
     def run(batch):
         tags = torch.tensor(batch)[..., None, None, None, None]
@@ -75,8 +74,8 @@ def main():
     if args.cases < 1:
         parser.error("--cases must be positive")
 
-    dino = runpy.run_path(str(UPSTREAM / "dino_wm/models/visual_world_model.py"))["VWorldModel"]
-    le = runpy.run_path(str(UPSTREAM / "le-wm/jepa.py"))["JEPA"]
+    dino = runpy.run_path(str(DINO_SOURCE))["VWorldModel"]
+    le = runpy.run_path(str(LE_SOURCE))["JEPA"]
     checks = {
         "DreamDojo LAM training conditioning": load_dreamdojo(),
         "OpenDWM CTSD stitched output": load_opendwm(),

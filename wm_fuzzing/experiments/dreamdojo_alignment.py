@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from fuzz_checks import assert_frame_order
+from wm_fuzzing.experiments.checks import assert_frame_order
 
 
 def load_eval_loop(source: Path):

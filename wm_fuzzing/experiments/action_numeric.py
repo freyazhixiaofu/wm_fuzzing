@@ -15,10 +15,8 @@ import numpy as np
 import torch
 from torch.nn import functional as F
 
-from fuzz_latent_alignment import load_definitions
-
-
-UPSTREAM = Path(__file__).resolve().parent / "upstream"
+from wm_fuzzing.experiments.latent_alignment import load_definitions
+from wm_fuzzing.sources import UPSTREAM
 
 
 def load_dino_normalization():

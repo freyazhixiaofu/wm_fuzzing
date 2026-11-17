@@ -9,10 +9,11 @@ from types import SimpleNamespace
 
 import torch
 
-from fuzz_checks import assert_frame_order
+from wm_fuzzing.experiments.checks import assert_frame_order
+from wm_fuzzing.sources import UPSTREAM
 
 
-DEFAULT_SOURCE = Path(__file__).with_name("upstream") / "cosmos_predict2_5" / "video2world.py"
+DEFAULT_SOURCE = UPSTREAM / "cosmos_predict2_5" / "video2world.py"
 
 
 def load_rollout(source):

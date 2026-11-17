@@ -1,18 +1,20 @@
-"""Exercise upstream CPU reset and resume paths without learned components."""
+"""Reproduce reset and restore bugs with deterministic CPU inputs."""
 
 import argparse
 import random
 import sys
 from collections import namedtuple
-from pathlib import Path
 from types import MethodType, SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
 import torch
 
+from wm_fuzzing.properties import check_reset_isolation, check_restore_replay
+from wm_fuzzing.sources import UPSTREAM
 
-SOURCE = Path(__file__).with_name("upstream") / "reset"
+
+SOURCE = UPSTREAM / "reset"
 
 
 def load_source(relative_path, **bindings):
@@ -29,16 +31,6 @@ def bind(instance, scope, *names):
     return instance
 
 
-def check_reset_isolation(make, reset, warm, probe):
-    """A used instance must behave like a fresh one after the same reset."""
-    fresh, used = make(), make()
-    reset(fresh)
-    reset(used)
-    warm(used)
-    reset(used)
-    return probe(fresh), probe(used)
-
-
 class TinyEnv:
     def __init__(self, horizon):
         self.horizon = horizon
@@ -51,16 +43,21 @@ class TinyEnv:
 
 
 def check_action_repeat(wrapper, rng):
+    """Compare DreamerV3's action repeat after a terminal run and a fresh reset."""
     repeat = rng.randint(2, 6)
     horizon = rng.randint(3 * repeat + 1, 7 * repeat)
 
+    def reset(instance):
+        instance.step(dict(reset=True, value=0))
+
     def warm(instance):
+        reset(instance)
         while not instance.step(dict(reset=False, value=-2))["is_last"]:
             pass
 
     return check_reset_isolation(
         lambda: wrapper(TinyEnv(horizon), repeat),
-        lambda instance: instance.step(dict(reset=True, value=0)),
+        reset,
         warm,
         lambda instance: [instance.step(dict(reset=False, value=1)) for _ in range(3)],
     )
@@ -74,6 +71,7 @@ def diamond_init(count):
 
 
 def check_diamond(methods, rng):
+    """Check DIAMOND's whole-batch reset and its reset of selected episodes."""
     batch = rng.randint(2, 5)
     warm_steps = rng.randint(1, 8)
     horizon = rng.randint(1, 6)
@@ -102,12 +100,16 @@ def check_diamond(methods, rng):
 
     warm_actions = [[rng.randint(1, 7) for _ in range(batch)] for _ in range(warm_steps)]
     probe_actions = [[rng.randint(-4, 4) for _ in range(batch)] for _ in range(4)]
-    full = check_reset_isolation(make, lambda model: model.reset(), lambda model: run(model, warm_actions),
-                                 lambda model: run(model, probe_actions))
+    def warm(model):
+        model.reset()
+        run(model, warm_actions)
+
+    full = check_reset_isolation(
+        make, lambda model: model.reset(), warm, lambda model: run(model, probe_actions)
+    )
 
     model = make()
-    model.reset()
-    run(model, warm_actions)
+    warm(model)
     dead = torch.tensor([(i + warm_steps) % 2 == 0 for i in range(batch)])
     fields = ("obs_buffer", "act_buffer", "hx_rew_end", "cx_rew_end", "ep_len")
     batch_axes = (0, 0, 1, 1, 0)
@@ -123,7 +125,8 @@ def check_diamond(methods, rng):
     return full, (expected, actual)
 
 
-def check_overworld(engine, codec, taehv, rng):
+def check_overworld(engine, codec, taehv, rng, check):
+    """Exercise Overworld with an upstream streaming decoder and tiny CPU weights."""
     warm_values = [rng.randint(80, 127) / 128 for _ in range(rng.randint(1, 6))]
     probe_values = [rng.randint(1, 47) / 128 for _ in range(3)]
     # Only the tiny deterministic network weights stand in. The memory block,
@@ -169,19 +172,27 @@ def check_overworld(engine, codec, taehv, rng):
     def run(instance, values):
         return [instance.gen_frame(value).flatten().tolist() for value in values]
 
+    def warm(instance):
+        instance.reset()
+        run(instance, warm_values)
+
+    comparisons = {}
     with patch.dict(sys.modules, {"taehv": SimpleNamespace(StreamingTAEHV=streaming)}):
-        reset = check_reset_isolation(make, lambda model: model.reset(), lambda model: run(model, warm_values),
-                                      lambda model: run(model, probe_values))
-        model = make()
-        run(model, warm_values)
-        snapshot = model.get_state()
-        expected = run(model, probe_values)
-        model.load_state(snapshot)
-        actual = run(model, probe_values)
-    return reset, (expected, actual)
+        if check != "restore":
+            comparisons["Overworld reset"] = check_reset_isolation(
+                make, lambda model: model.reset(), warm, lambda model: run(model, probe_values)
+            )
+        if check != "reset":
+            model = make()
+            run(model, warm_values)
+            comparisons["Overworld snapshot replay"] = check_restore_replay(
+                model, engine["get_state"], engine["load_state"], lambda model: run(model, probe_values)
+            )
+    return comparisons
 
 
 def check_abot(methods, rng, resize):
+    """Compare ABot-World's stream caches before and after reusing a stream."""
     start_batch = rng.randint(1, 4)
     batch = start_batch + rng.choice((1, 2)) if resize else start_batch
     history = rng.randint(1, 4)
@@ -216,50 +227,55 @@ def check_abot(methods, rng, resize):
               cross["k"].size(0), cross["is_init"]) for cache, cross in zip(model.kv_cache1, model.crossattn_cache)],
         )
 
-    fresh, used = make(), make()
-    reset(fresh, batch)
-    warm(used)
-    reset(used, batch)
-    return probe(fresh), probe(used)
+    return check_reset_isolation(make, lambda model: reset(model, batch), warm, probe)
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cases", type=int, default=64)
-    parser.add_argument("--seed", type=int, default=42)
-    args = parser.parse_args()
-    if args.cases < 1:
-        parser.error("--cases must be positive")
-
+def load_dreamerv3_wrappers():
     # The old wrapper only needs its base constructor to keep a reference to the environment.
     class Wrapper:
         def __init__(self, env):
             self.env = env
 
-    wrappers = {
+    return {
         version: load_source(f"dreamerv3/{version}.py", base=SimpleNamespace(Wrapper=Wrapper))["ActionRepeat"]
         for version in ("before", "fixed", "current")
     }
-    diamond = load_source("diamond/episode.py")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", choices=("reset", "restore", "all"), default="all")
+    parser.add_argument("--cases", type=int, default=64, help="number of cases per comparison")
+    parser.add_argument("--seed", type=int, default=42, help="first seed, incremented for each case")
+    args = parser.parse_args()
+    if args.cases < 1:
+        parser.error("--cases must be positive")
+
+    run_reset = args.check != "restore"
+    if run_reset:
+        wrappers = load_dreamerv3_wrappers()
+        diamond = load_source("diamond/episode.py")
+        abot = load_source("abot/stream.py", print=lambda *args, **kwargs: None)
     overworld = load_source("overworld/engine.py")
     codec = load_source("overworld/ae.py")
     taehv = load_source("overworld/taehv.py", nn=torch.nn, namedtuple=namedtuple)
-    abot = load_source("abot/stream.py", print=lambda *args, **kwargs: None)
     torch.set_num_threads(1)
 
     results = {}
     for case in range(args.cases):
+        # Give each adapter its own RNG so selecting a check preserves its inputs.
         case_seed = args.seed + case
-        sample = {
-            f"DreamerV3 action repeat {version}": check_action_repeat(wrapper, random.Random(case_seed))
-            for version, wrapper in wrappers.items()
-        }
-        sample["DIAMOND full reset"], sample["DIAMOND selective reset"] = check_diamond(diamond, random.Random(case_seed))
-        sample["Overworld reset"], sample["Overworld snapshot replay"] = check_overworld(
-            overworld, codec, taehv, random.Random(case_seed)
-        )
-        sample["ABot-World same-batch reset"] = check_abot(abot, random.Random(case_seed), resize=False)
-        sample["ABot-World resized-batch reset"] = check_abot(abot, random.Random(case_seed), resize=True)
+        sample = {}
+        if run_reset:
+            for version, wrapper in wrappers.items():
+                sample[f"DreamerV3 action repeat {version}"] = check_action_repeat(wrapper, random.Random(case_seed))
+            sample["DIAMOND full reset"], sample["DIAMOND selective reset"] = check_diamond(
+                diamond, random.Random(case_seed)
+            )
+        sample.update(check_overworld(overworld, codec, taehv, random.Random(case_seed), args.check))
+        if run_reset:
+            sample["ABot-World same-batch reset"] = check_abot(abot, random.Random(case_seed), resize=False)
+            sample["ABot-World resized-batch reset"] = check_abot(abot, random.Random(case_seed), resize=True)
         for name, (expected, actual) in sample.items():
             results.setdefault(name, []).append(expected == actual)
             if expected != actual and all(results[name][:-1]):

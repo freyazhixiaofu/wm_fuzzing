@@ -1,4 +1,4 @@
-"""Fuzz V-JEPA 2-AC on CPU. Usage: python fuzz_vjepa_ac.py PATH_TO_VJEPA2."""
+"""Fuzz V-JEPA 2-AC on CPU with a local V-JEPA 2 checkout."""
 
 import argparse
 import random

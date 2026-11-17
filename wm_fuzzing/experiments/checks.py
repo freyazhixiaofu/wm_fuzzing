@@ -1,38 +1,8 @@
-"""CPU checks for the frame stitching and action normalization of world models."""
+"""Additional checks for frame order and finite action normalization."""
 
 import math
 import random
 from collections.abc import Callable, Sequence
-from typing import TypeVar
-
-
-Sample = TypeVar("Sample")
-Result = TypeVar("Result")
-
-
-def assert_batch_isolation(
-    run: Callable[[list[Sample]], Sequence[Result]],
-    batch: Sequence[Sample],
-    replacement: Sample,
-    *,
-    held: int = 0,
-    changed: int = 1,
-) -> None:
-    """Compare exact per-sample outputs from a deterministic, non-mutating adapter."""
-    if not (0 <= held < len(batch) and 0 <= changed < len(batch)) or held == changed:
-        raise ValueError("held and changed must be different valid batch indices")
-
-    original = run(list(batch))
-    updated = list(batch)
-    updated[changed] = replacement
-    rerun = run(updated)
-    if len(original) != len(batch) or len(rerun) != len(batch):
-        raise AssertionError("Expected one output per sample")
-    if original[held] != rerun[held]:
-        raise AssertionError(
-            f"Changing sample {changed} changed untouched sample {held}\n"
-            f"Before: {original[held]}\nAfter: {rerun[held]}"
-        )
 
 
 def assert_frame_order(expected: Sequence[int], actual: Sequence[int], context: str) -> None:

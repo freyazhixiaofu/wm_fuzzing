@@ -8,7 +8,6 @@ import ast
 from enum import Enum
 from functools import partial
 import math
-from pathlib import Path
 import random
 from types import SimpleNamespace
 from typing import List, Optional, Tuple
@@ -19,14 +18,11 @@ from torch import nn
 from torch.nn import functional as F
 from torch.nn.attention.flex_attention import and_masks, or_masks
 
-from fuzz_checks import assert_batch_isolation
-
-
-SOURCE = Path(__file__).with_name("upstream")
-
+from wm_fuzzing.properties import assert_batch_isolation
+from wm_fuzzing.sources import UPSTREAM
 
 def load_source(path, prepare=None, **bindings):
-    path = SOURCE / path
+    path = UPSTREAM / path
     code = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     if prepare is not None:
         prepare(code)

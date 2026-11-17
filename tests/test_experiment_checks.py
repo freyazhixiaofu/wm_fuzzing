@@ -1,7 +1,7 @@
 import statistics
 import unittest
 
-from fuzz_checks import check_action_normalization, check_frame_stitching
+from wm_fuzzing.experiments.checks import check_action_normalization, check_frame_stitching
 
 
 class FuzzChecksTests(unittest.TestCase):
