@@ -1,0 +1,7 @@
+        lam_video = rearrange(data_batch["lam_video"], "b (p t) h w c -> (b p) t h w c", t=2)
+        lam_input = {"videos": lam_video}
+        with torch.no_grad():
+            outputs = self.lam.lam(lam_input)
+        latent_action = outputs["z_rep"].squeeze().to(data_batch["action"].dtype).detach()
+        latent_action = rearrange(latent_action, "(t b) d -> b t d", t=data_batch["action"].shape[1])
+        data_batch["action"][:, :, -32:] = data_batch["action"][:, :, -32:] * latent_action

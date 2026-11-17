@@ -1,0 +1,113 @@
+"""CPU checks for the frame stitching and action normalization of world models."""
+
+import math
+import random
+from collections.abc import Callable, Sequence
+from typing import TypeVar
+
+
+Sample = TypeVar("Sample")
+Result = TypeVar("Result")
+
+
+def assert_batch_isolation(
+    run: Callable[[list[Sample]], Sequence[Result]],
+    batch: Sequence[Sample],
+    replacement: Sample,
+    *,
+    held: int = 0,
+    changed: int = 1,
+) -> None:
+    """Compare exact per-sample outputs from a deterministic, non-mutating adapter."""
+    if not (0 <= held < len(batch) and 0 <= changed < len(batch)) or held == changed:
+        raise ValueError("held and changed must be different valid batch indices")
+
+    original = run(list(batch))
+    updated = list(batch)
+    updated[changed] = replacement
+    rerun = run(updated)
+    if len(original) != len(batch) or len(rerun) != len(batch):
+        raise AssertionError("Expected one output per sample")
+    if original[held] != rerun[held]:
+        raise AssertionError(
+            f"Changing sample {changed} changed untouched sample {held}\n"
+            f"Before: {original[held]}\nAfter: {rerun[held]}"
+        )
+
+
+def assert_frame_order(expected: Sequence[int], actual: Sequence[int], context: str) -> None:
+    """Compare frame identities so an equal-length repeat and drop still fails."""
+    expected_ids = list(expected)
+    actual_ids = list(actual)
+    if actual_ids != expected_ids:
+        raise AssertionError(
+            f"Frame order mismatch ({context})\n"
+            f"Expected {expected_ids}\n"
+            f"Received {actual_ids}"
+        )
+
+
+def check_frame_stitching(
+    stitch: Callable[[list[list[int]]], Sequence[int]],
+    *,
+    seed: int = 42,
+    cases: int = 32,
+) -> None:
+    """Check that each frame appears once, in order, across one-frame overlaps."""
+    if cases < 1:
+        raise ValueError("cases must be positive")
+
+    rng = random.Random(seed)
+    for case in range(cases):
+        lengths = [13, 13]
+        if case > 0:
+            lengths = [rng.randint(2, 16) for _ in range(rng.randint(2, 5))]
+        chunks = []
+        start = 0
+        for length in lengths:
+            chunks.append(list(range(start, start + length)))
+            start += length - 1
+
+        expected = list(range(start + 1))
+        assert_frame_order(expected, stitch(chunks), f"seed={seed}, case={case}, lengths={lengths}")
+
+
+def check_action_normalization(
+    normalize: Callable[[list[list[float]]], Sequence[Sequence[float]]],
+    *,
+    seed: int = 42,
+    cases: int = 32,
+) -> None:
+    """Check that normalization preserves shape and returns finite actions."""
+    if cases < 1:
+        raise ValueError("cases must be positive")
+
+    rng = random.Random(seed)
+    for case in range(cases):
+        if case == 0:
+            actions = [[0.0, 5.0], [2.0, 5.0], [4.0, 5.0]]
+            rows, channels = 3, 2
+            fixed_channel = 1
+        else:
+            rows, channels = rng.randint(2, 8), rng.randint(1, 6)
+            fixed_channel = rng.randrange(channels)
+            fixed_value = rng.uniform(-8, 8)
+            actions = [
+                [
+                    fixed_value if channel == fixed_channel else rng.uniform(-8, 8)
+                    for channel in range(channels)
+                ]
+                for _ in range(rows)
+            ]
+
+        actual = normalize(actions)
+        context = f"seed={seed}, case={case}, fixed_channel={fixed_channel}"
+        if len(actual) != rows or any(len(row) != channels for row in actual):
+            raise AssertionError(f"Expected action shape ({rows}, {channels}) ({context})")
+
+        for step, row in enumerate(actual):
+            for channel, value in enumerate(row):
+                if not math.isfinite(value):
+                    raise AssertionError(
+                        f"Non-finite action at step {step}, channel {channel}: {value} ({context})"
+                    )
